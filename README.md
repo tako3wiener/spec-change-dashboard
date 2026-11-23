@@ -1,6 +1,55 @@
-# Spec Change Dashboard（独立アプリ）
+# Spec Change Dashboard v1.2（独立アプリ）
 
-v5.1/v5.2 の `/spec-change` の調査資料、Git差分、承認状況、JUnit・Playwrightスクリーンショット/Traceを閲覧する**読み取り専用**Webアプリです。
+v5.1〜v5.3 の `/spec-change` の調査資料、Git差分、承認状況、JUnit・Playwrightスクリーンショット/Traceを閲覧する**読み取り専用**Webアプリです。
+
+## インストール方法（初回導入）
+
+開発ツール本体とは別のフォルダにcloneして使用します。Python標準ライブラリのみで起動でき、pip install、Node.js、データベース、公開鍵の設定は不要です。
+
+### 1. 前提環境
+
+- Python 3.9以降、Git、Webブラウザ。
+- GitHubのPrivateリポジトリへのアクセス権限とGit認証。
+- 開発ツールを導入した、同じPCから読み取れる実際のJava Gitリポジトリ（v5.3推奨）。ダッシュボードをJavaリポジトリにコピーする必要はない。
+
+```bash
+python3 --version
+git --version
+```
+
+### 2. GitHubから取得
+
+```bash
+mkdir -p "$HOME/work"
+cd "$HOME/work"
+git clone https://github.com/tako3wiener/spec-change-dashboard.git
+cd spec-change-dashboard
+```
+
+SSH認証を設定済みの場合は `git clone git@github.com:tako3wiener/spec-change-dashboard.git` でも取得できる。認証情報をURLに埋め込まない。
+
+### 3. 起動してブラウザで開く
+
+```bash
+# 実際に開発ツールを導入したJavaリポジトリの絶対パスを指定
+python3 -m sdd_dashboard --repo "$HOME/work/your-java-project" --port 8765
+```
+
+ブラウザで <http://127.0.0.1:8765> を開く。起動したターミナルで Ctrl+C を押すと停止する。8765番ポートが使用中なら `--port 8766` に変更し、ブラウザも8766番を開く。
+
+Javaリポジトリでまだ `/project-setup` や `/spec-change` を実施していなければ、設定・変更ID・進捗が表示されない場合がある。開発ツールの [README](https://github.com/tako3wiener/claude-spec-driven-development/blob/main/README.md) に従って準備する。
+
+旧版の開発ツールで署名が必須の場合、その要件は旧版側に残る。v1.2のダッシュボードは電子署名を検証しないため、v5.3以降との組み合わせを推奨する。
+
+### 4. 更新・取り外し
+
+```bash
+cd "$HOME/work/spec-change-dashboard"
+git pull --ff-only
+python3 -m unittest discover -s tests -v
+```
+
+起動中なら停止して再起動する。取り外す場合はサービスを停止し、ダッシュボード側のcloneフォルダだけを削除する。開発ツール本体やJavaリポジトリの設定・証跡に変更は不要。
 
 ## 使い方
 
@@ -27,7 +76,7 @@ python3 -m sdd_dashboard --repo /work/your-java-project --base-ref origin/main -
 
 ## 疎結合とセキュリティ
 
-- ダッシュボードは既存システムのスクリプトをimportも実行もせず、ファイルと`git`、公開鍵が指定されている場合のみ`openssl`を**読み取り**に使用します。
+- ダッシュボードは既存システムのスクリプトをimportも実行もせず、ファイルと `git` を**読み取り**に使用します。v1.2では承認に関する電子署名やOpenSSLの検証は行いません。
 - `spec-change`を動かすのにダッシュボードやHTTPサービスは必要ありません。ダッシュボードを削除しても動作に影響しません。
 - 既定で`127.0.0.1`のみに待受け、書込み/承認/マージ/デプロイのAPIを持ちません。社外・社内LAN公開用途には**未対応**です。
 - PNGやTraceには個人情報・認証情報が含まれ得るため、合成テストデータを使い、起動ホストのアクセス権を制御してください。
