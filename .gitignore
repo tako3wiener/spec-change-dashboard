@@ -1,0 +1,12 @@
+# Local runtime artifacts and sensitive test outputs
+__pycache__/
+*.py[cod]
+.venv/
+.env
+.env.*
+!.env.example
+.pytest_cache/
+.coverage
+reports/
+*.log
+.DS_Store
