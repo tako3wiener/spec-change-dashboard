@@ -94,34 +94,29 @@ def csv_info(path: Path):
     except (UnicodeError,OSError,csv.Error): return {'count':0,'rows':[]}
 
 
-def signature_info(repo: Path, change: str, gate: str, public_key: Path|None,
-                   config: dict, run: dict|None=None):
-    """Verify externally signed gate statements independently; no private-key operations."""
-    approval_dir=repo/'.claude/local/approvals'
-    doc=approval_dir/f'{change}-{gate}.json'
-    sig=approval_dir/f'{change}-{gate}.sig'
-    if not doc.is_file() or not sig.is_file():
+def approval_info(repo: Path, change: str, gate: str, config: dict, run: dict|None=None):
+    """Check local human approval records without claiming verified identity."""
+    doc=repo/'.claude/local/approvals'/f'{change}-{gate}.json'
+    if not doc.is_file():
         return {'status':'missing','label':'未提出'}
+    if doc.is_symlink():
+        return {'status':'invalid','label':'承認ファイル不正'}
     payload=read_json(doc)
-    if not isinstance(payload,dict): return {'status':'invalid','label':'承認データ不正'}
-    label='署名ファイルあり・未検証'
-    if (not public_key or not public_key.is_file() or public_key.resolve().is_relative_to(repo) or
-            doc.is_symlink() or sig.is_symlink()):
-        return {'status':'unverified','label':label,'approver':payload.get('approver'),'approved_at':payload.get('approved_at')}
-    try:
-        p=subprocess.run(['openssl','dgst','-sha256','-verify',str(public_key),'-signature',str(sig),str(doc)],
-            capture_output=True,timeout=5,check=False)
-        if p.returncode:return {'status':'invalid','label':'署名検証失敗'}
-    except (OSError,subprocess.TimeoutExpired):
-        return {'status':'unverified','label':'OpenSSL検証不可'}
-    if payload.get('change_id')!=change or payload.get('gate')!=gate or payload.get('decision')!='APPROVED' or not payload.get('approver') or not payload.get('approved_at'):
+    if not isinstance(payload,dict):
+        return {'status':'invalid','label':'承認データ不正'}
+    if payload.get('change_id')!=change or payload.get('gate')!=gate or payload.get('decision')!='APPROVED' or not isinstance(payload.get('approver'),str) or not payload['approver'].strip() or not payload.get('approved_at'):
         return {'status':'invalid','label':'承認対象が一致しません'}
+    try:
+        if datetime.fromisoformat(payload['approved_at'].replace('Z','+00:00')).tzinfo is None:
+            raise ValueError('missing timezone')
+    except (ValueError,TypeError,AttributeError):
+        return {'status':'invalid','label':'承認日時不正'}
     expiry=payload.get('expires_at')
-    if expiry:
+    if expiry is not None:
         try:
             dt=datetime.fromisoformat(expiry.replace('Z','+00:00'))
             if not dt.tzinfo or dt<=datetime.now(timezone.utc):raise ValueError('expired')
-        except (ValueError,TypeError):return {'status':'invalid','label':'承認期限切れ'}
+        except (ValueError,TypeError,AttributeError):return {'status':'invalid','label':'承認期限切れ・不正'}
     if gate=='G2':
         plans={'requirements_hash':repo/'docs/changes'/change/'requirements.csv',
                'test_cases_hash':repo/'docs/changes'/change/'test_cases.csv',
@@ -143,7 +138,7 @@ def signature_info(repo: Path, change: str, gate: str, public_key: Path|None,
         summary_file=run.get('_summary_path')
         if not summary_file or not summary_file.is_file() or file_hash(summary_file)!=payload.get('summary_sha256'):
             return {'status':'invalid','label':'G6成果物ハッシュ不一致'}
-    return {'status':'verified','label':'署名・対象一致','approver':str(payload.get('approver'))[:100],
+    return {'status':'verified','label':'承認記録・対象一致（本人未認証）','approver':str(payload.get('approver'))[:100],
             'approved_at':str(payload.get('approved_at'))[:64]}
 
 
@@ -236,7 +231,7 @@ class RepositoryReader:
         self.repo=Path(repo).resolve(strict=True)
         self.state_dir=Path(state_dir).resolve() if state_dir else self.repo/'.claude/local/progress'
         self.config_path=self.repo/'.claude/local/project-env.json'
-        self.public_key=Path(os.environ['SDD_APPROVAL_PUBLIC_KEY']).expanduser() if os.environ.get('SDD_APPROVAL_PUBLIC_KEY') else None
+
         self.base_ref='HEAD'
         if base_ref:
             if not re.fullmatch(r'[A-Za-z0-9._/\-]+',base_ref) or base_ref.startswith('-') or '..' in base_ref:
@@ -325,7 +320,7 @@ class RepositoryReader:
                 'e2e_evidence_dir':str(self.roots()['e2e'].relative_to(self.repo)),
                 'retention_days':cfg.get('artifact_retention_days',90), 'diff_base':self.base_ref,
                 'changes':[self._change_summary(x) for x in changes],
-                'read_only':True,'notice':'画面のゲートはファイルからの推定です。承認は署名検証済みの場合のみ有効と表示します。'}
+                'read_only':True,'notice':'画面のゲートはファイルからの推定です。承認はローカル記録と対象の整合確認です。承認者本人の認証は行いません。'}
 
     def _change_summary(self,change:str):
         d=self.change(change,details=False)
@@ -347,12 +342,12 @@ class RepositoryReader:
         e2e_runs.sort(key=lambda r:r.get('updated_at') or '',reverse=True)
         java_runs.sort(key=lambda r:r.get('updated_at') or '',reverse=True)
         latest=e2e_runs[0] if e2e_runs else None
-        ap2=signature_info(self.repo,change,'G2',self.public_key,cfg)
-        apnet=signature_info(self.repo,change,'NET',self.public_key,cfg)
+        ap2=approval_info(self.repo,change,'G2',cfg)
+        apnet=approval_info(self.repo,change,'NET',cfg)
         # G6 checks only latest PASS, for review we show its status without claiming core G6 execution.
         latest_path=roots['e2e']/change/latest['run_id']/'summary.json' if latest else None
         g6_run=dict(latest or {},_summary_path=latest_path) if latest else None
-        ap6=signature_info(self.repo,change,'G6',self.public_key,cfg,run=g6_run)
+        ap6=approval_info(self.repo,change,'G6',cfg,run=g6_run)
         document_names={d['path'] for d in docs}
         have_plan={'requirements.csv','test_cases.csv','change-plan.md'}.issubset(document_names)
         have_config=bool(cfg.get('confirmed_codebase') and cfg.get('confirmed_isolated'))
@@ -383,17 +378,19 @@ class RepositoryReader:
         elif not have_plan:
             gate='G1';action='仕様・影響調査と requirements.csv / test_cases.csv / change-plan.md を揃える'
         elif ap2['status']!='verified':
-            gate='G2';action='変更設計・TC・既存影響を確認し、外部でG2署名・検証を行う'
+            gate='G2';action='変更設計・TC・既存影響を確認し、別ターミナルでG2承認を記録する'
         elif not java_pass:
             gate='G3';action='Javaを実装し、承認済み仕様に対する単体・結合テストを実行する'
+        elif apnet['status']!='verified':
+            gate='G4';action='実ネットワーク隔離を確認し、別ターミナルでNET承認を記録する'
         elif not e2e_pass:
-            gate='G4';action='NET隔離を確認後、Playwright正式E2Eを実行して証跡を確認する'
+            gate='G4';action='Playwright正式E2Eを実行して証跡を確認する'
         elif not review_exists:
             gate='G5';action='独立レビューで仕様・差分・JUnit・E2E証跡を照合する'
         elif ap6['status']!='verified':
-            gate='G6';action='成果物と残課題を確認し、外部でG6受入署名を行う'
+            gate='G6';action='成果物と残課題を確認し、別ターミナルでG6受入承認を記録する'
         else:
-            gate='DONE';action='受入署名確認済み。マージ・デプロイは既存手順で別途判断する'
+            gate='DONE';action='受入承認記録確認済み。マージ・デプロイは既存手順で別途判断する'
         for g in gates:
             if g['id']==gate:g['status']='current' if g['status']=='pending' else g['status']
         event=self.event(change)
@@ -410,7 +407,7 @@ class RepositoryReader:
             event['branch_mismatch']=True
         dates=[d.get('updated_at') for d in docs if d.get('updated_at')]
         dates += [r.get('updated_at') for r in e2e_runs+java_runs if r.get('updated_at')]
-        result={'change_id':change,'gate':gate,'gate_label':('進捗申告（非承認）' if event and not event.get('branch_mismatch') else '成果物から推定') if gate!='DONE' else '署名確認済み・ローカル推定',
+        result={'change_id':change,'gate':gate,'gate_label':('進捗申告（非承認）' if event and not event.get('branch_mismatch') else '成果物から推定') if gate!='DONE' else '承認記録確認済み・ローカル推定',
                 'next_action':action,'last_updated':max(dates) if dates else None,
                 'e2e_status': latest['status'] if latest else '未実行',
                 'event':event,'activity':self.history(change) if details else [],'gates':gates,'approvals':{'G2':ap2,'NET':apnet,'G6':ap6},

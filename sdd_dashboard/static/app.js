@@ -58,7 +58,7 @@ function renderOverview(body,d){const grid=el('div','summary-grid');
   const g=card('gate-card'),gh=el('div','gate-head');add(gh,title('h3','開発ゲート'),pill(event?`作業申告：${event.state}`:'成果物から推定','warn'));g.append(gh);
   const line=el('div','gate-line');(d.gates||[]).forEach(item=>{
     const step=el('div','gate-step'+(item.id===d.gate?' focus':'')+(item.status==='verified'?' passed':'')+(item.status==='reported-blocked'?' blocked':''));
-    add(step,el('span','gate-num',item.id),el('span','gate-name',item.title),el('span','gate-state',item.status==='verified'?'署名確認':item.status.startsWith('reported')?'進捗申告':item.status==='observed'?'成果物あり':'未完了'));step.title=item.detail||'';line.append(step)
+    add(step,el('span','gate-num',item.id),el('span','gate-name',item.title),el('span','gate-state',item.status==='verified'?'承認記録':item.status.startsWith('reported')?'進捗申告':item.status==='observed'?'成果物あり':'未完了'));step.title=item.detail||'';line.append(step)
   });g.append(line);body.append(g);
   const sectionGrid=el('div','item-grid');const a=card('metric');add(a,title('h3','作業ブランチ'),el('div','large-metric mono',d.git.branch),el('div','small-note','HEAD '+d.git.commit));
   const b=card('metric');add(b,title('h3','仕様・ケース'),el('div','large-metric',`${d.requirements.count} REQ / ${d.test_cases.count} TC`),el('div','small-note','CSVから集計 · 内容の充足は別途レビュー'));const c=card('metric');add(c,title('h3','テスト実行履歴'),el('div','large-metric',`${d.java_runs.length+d.e2e_runs.length} 件`),el('div','small-note','最近のローカル記録'));add(sectionGrid,a,b,c);body.append(sectionGrid);
@@ -109,11 +109,11 @@ function renderRuns(body,d){
   for(const f of r.files.filter(f=>f.path.endsWith('.xml')||f.path.endsWith('.json')).slice(0,18)){
    const row=el('div','file-row'),u=artifactUrl('unit',d.change_id,r.run_id,r.phase+'/'+f.path);add(row,el('span','mono',f.path),button('表示',()=>previewText(u,f.path)));c.append(row)}body.append(c)})
 }
-function renderApprovals(body,d){body.append(warning('承認資料はこの画面で確認できますが、承認行為は行いません。G2・NET・G6の署名は従来どおりClaudeから秘密鍵を操作できない外部環境で実施してください。'));
+function renderApprovals(body,d){body.append(warning('承認資料はこの画面で確認できますが、承認行為は行いません。G2・NET・G6は人が別ターミナルで開発ツールの record-* コマンドを実行します。鍵は不要です。承認者本人の認証は行いません。'));
  const grid=el('div','approval-grid');['G2','NET','G6'].forEach(g=>{const data=d.approvals[g]||{},c=el('div','approval-card');add(c,title('h3',g+(g==='G2'?' · 実装計画':g==='G6'?' · 最終受入':' · 環境安全')),pill(data.label||'未提出',statusKind(data.status)),info('承認者：'+(data.approver||'未確認')),info('日時：'+fmt(data.approved_at)));
  if(g!=='NET')c.append(button('承認対象のハッシュを確認',async()=>{
   try{const packet=await get(uri('/api/approval-materials',{id:d.change_id,gate:g}));const pane=el('div');const pre=el('pre','preview-pre',JSON.stringify(packet,null,2));
-   add(pane,warning('署名前の確認資料です。表示・コピーでは承認は成立しません。'),pre,button('JSONをコピー',async()=>{try{await navigator.clipboard.writeText(JSON.stringify(packet,null,2))}catch(e){showError('コピーできませんでした')}}));preview(g+' 承認確認用','署名なし・PENDING',pane)
+   add(pane,warning('承認前の確認資料です。表示・コピーでは承認は成立しません。'),pre,button('JSONをコピー',async()=>{try{await navigator.clipboard.writeText(JSON.stringify(packet,null,2))}catch(e){showError('コピーできませんでした')}}));preview(g+' 承認確認用','未承認・PENDING',pane)
   }catch(e){showError(e.message)}
  }));grid.append(c)});body.append(grid);
  section(body,'G2承認資料');body.append(documentGrid(d.documents.filter(f=>['change-plan.md','requirements.csv','test_cases.csv'].includes(f.path)),d.change_id));
