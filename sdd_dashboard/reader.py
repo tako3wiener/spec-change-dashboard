@@ -128,6 +128,13 @@ def approval_info(repo: Path, change: str, gate: str, config: dict, run: dict|No
                     return {'status':'invalid','label':'承認対象が変更されています'}
             except OSError:return {'status':'invalid','label':'承認対象を読めません'}
     if gate=='NET':
+        if config.get('execution_context') in ('local','devcontainer'):
+            try:
+                config_file=repo/'.claude/local/project-env.json'
+                if config_file.is_symlink() or file_hash(config_file)!=payload.get('project_config_hash'):
+                    return {'status':'invalid','label':'NET実行環境・設定変更：再承認が必要'}
+            except OSError:
+                return {'status':'invalid','label':'設定ファイルを読めません'}
         if (payload.get('allowed_origin')!=config.get('allowed_origin') or
             payload.get('isolation_mode') not in ('container-egress-policy','network-firewall','dedicated-isolated-host') or
             any(payload.get(k) is not True for k in ('dedicated_test_credentials','synthetic_test_data','trace_storage_approved'))):
@@ -136,6 +143,15 @@ def approval_info(repo: Path, change: str, gate: str, config: dict, run: dict|No
         if not run or run.get('status')!='PASS' or payload.get('run_id')!=run.get('run_id') or payload.get('snapshot_id')!=run.get('snapshot_id'):
             return {'status':'invalid','label':'G6対象実行不一致'}
         summary_file=run.get('_summary_path')
+        if config.get('execution_context') in ('local','devcontainer'):
+            try:
+                config_hash=file_hash(repo/'.claude/local/project-env.json')
+                if (run.get('execution_context')!=config['execution_context'] or
+                        run.get('project_config_hash')!=config_hash or
+                        run.get('summary_config_hash')!=config_hash):
+                    return {'status':'invalid','label':'G6実行環境・設定変更：E2E再実行が必要'}
+            except OSError:
+                return {'status':'invalid','label':'設定ファイルを読めません'}
         if not summary_file or not summary_file.is_file() or file_hash(summary_file)!=payload.get('summary_sha256'):
             return {'status':'invalid','label':'G6成果物ハッシュ不一致'}
     return {'status':'verified','label':'承認記録・対象一致（本人未認証）','approver':str(payload.get('approver'))[:100],
@@ -150,6 +166,9 @@ def _run_metadata(run_dir:Path, root:Path, kind:str):
     status=summary.get('status') if summary.get('status') in ('PASS','FAIL','BLOCKED') else 'UNKNOWN'
     item={'run_id':run_dir.name,'kind':kind,'status':status,'updated_at':utc_timestamp(run_dir/'summary.json') or utc_timestamp(run_dir),
           'phase':summary.get('phase') or ctx.get('phase'),
+          'execution_context':ctx.get('execution_context'),
+          'project_config_hash':ctx.get('project_config_hash'),
+          'summary_config_hash':summary.get('project_config_hash'),
           'snapshot_id':str(summary.get('snapshot_id') or ctx.get('snapshot_id') or '')[:80],
           'branch':ctx.get('git',{}).get('branch') if isinstance(ctx.get('git'),dict) else None,
           'started_at':ctx.get('started_at_utc'),'finished_at':summary.get('finished_at_utc'),
@@ -356,6 +375,16 @@ class RepositoryReader:
         int_required=bool(cfg.get('integration_test_argv'))
         java_pass=bool(unit_latest and unit_latest['status']=='PASS' and (not int_required or int_latest and int_latest['status']=='PASS'))
         e2e_pass=bool(latest and latest['status']=='PASS')
+        stale_e2e=False
+        if e2e_pass and cfg.get('execution_context') in ('local','devcontainer'):
+            try:
+                current_hash=file_hash(self.config_path)
+                stale_e2e=(latest.get('execution_context')!=cfg['execution_context'] or
+                           latest.get('project_config_hash')!=current_hash or
+                           latest.get('summary_config_hash')!=current_hash)
+            except OSError:
+                stale_e2e=True
+            e2e_pass=not stale_e2e
         review_exists=any(p in document_names for p in ('review.md','independent-review.md','final-report.md'))
         gates=[{'id':f'G{i}','title':name,'status':'pending','detail':''} for i,name in enumerate(
             ['初期設定','仕様・影響調査','変更設計承認','実装・Javaテスト','Playwright E2E','独立レビュー','最終承認'])]
@@ -368,7 +397,7 @@ class RepositoryReader:
         gates[3]['status']='observed' if java_pass else 'pending'
         gates[3]['detail']='今回とは限らないローカルJUnit PASS' if java_pass else ('JUnit結果未完了' if java_runs else 'JUnit結果なし')
         gates[4]['status']='observed' if e2e_pass else 'pending'
-        gates[4]['detail']='ローカル検証PASS（独立証明なし）' if e2e_pass else (latest['status'] if latest else 'E2E実行結果なし')
+        gates[4]['detail']='ローカル検証PASS（独立証明なし）' if e2e_pass else ('実行環境・設定変更：E2E再実行が必要' if stale_e2e else (latest['status'] if latest else 'E2E実行結果なし'))
         gates[5]['status']='observed' if review_exists else 'pending'
         gates[5]['detail']='レビュー資料あり（内容未検証）' if review_exists else 'レビュー記録なし'
         gates[6]['status']='verified' if ap6['status']=='verified' else 'pending'

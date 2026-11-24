@@ -1,6 +1,6 @@
-# Spec Change Dashboard v1.2（独立アプリ）
+# Spec Change Dashboard v1.3（独立アプリ）
 
-v5.1〜v5.3 の `/spec-change` の調査資料、Git差分、承認状況、JUnit・Playwrightスクリーンショット/Traceを閲覧する**読み取り専用**Webアプリです。
+v5.1〜v5.4 の `/spec-change` の調査資料、Git差分、承認状況、JUnit・Playwrightスクリーンショット/Traceを閲覧する**読み取り専用**Webアプリです。
 
 ## インストール方法（初回導入）
 
@@ -10,7 +10,7 @@ v5.1〜v5.3 の `/spec-change` の調査資料、Git差分、承認状況、JUni
 
 - Python 3.9以降、Git、Webブラウザ。
 - GitHubのPrivateリポジトリへのアクセス権限とGit認証。
-- 開発ツールを導入した、同じPCから読み取れる実際のJava Gitリポジトリ（v5.3推奨）。ダッシュボードをJavaリポジトリにコピーする必要はない。
+- 開発ツールが選択した、実行環境から読み取れる実際のJava Gitリポジトリ（v5.4推奨）。ダッシュボードをJavaリポジトリにコピーする必要はない。
 
 ```bash
 python3 --version
@@ -31,7 +31,7 @@ SSH認証を設定済みの場合は `git clone git@github.com:tako3wiener/spec-
 ### 3. 起動してブラウザで開く
 
 ```bash
-# 実際に開発ツールを導入したJavaリポジトリの絶対パスを指定
+# 開発ツール本体ではなく、選択したJavaリポジトリの絶対パスを指定
 python3 -m sdd_dashboard --repo "$HOME/work/your-java-project" --port 8765
 ```
 
@@ -40,6 +40,12 @@ python3 -m sdd_dashboard --repo "$HOME/work/your-java-project" --port 8765
 Javaリポジトリでまだ `/project-setup` や `/spec-change` を実施していなければ、設定・変更ID・進捗が表示されない場合がある。開発ツールの [README](https://github.com/tako3wiener/claude-spec-driven-development/blob/main/README.md) に従って準備する。
 
 旧版の開発ツールで署名が必須の場合、その要件は旧版側に残る。v1.2のダッシュボードは電子署名を検証しないため、v5.3以降との組み合わせを推奨する。
+
+### Dev Containerで利用する場合
+
+v5.4では開発ツール本体を任意の場所に置き、別のJavaリポジトリをコードベースに指定します。ダッシュボードの --repo は引き続きJavaリポジトリを指します。コンテナ内のファイルシステムをホストから自動で読めるわけではありません。必要ならDev Container内でダッシュボードを起動し、VS Codeで8765番ポートを転送してください。ホストに読み取り可能な共有マウントがある場合は、そのホスト側パスを指定できます。
+
+v1.3では、v5.4の execution_context と設定ハッシュ付きNET承認・E2E/G6記録も確認し、異なる設定で実行された旧E2Eを現在の合格とは扱いません。表示は読み取り専用のローカル整合確認であり、コンテナの実行や隔離の証明ではありません。
 
 ### 4. 更新・取り外し
 
